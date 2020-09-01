@@ -5,6 +5,7 @@ import hashlib
 import pprint
 
 import attr
+import arrow
 
 @attr.s(auto_attribs=True, frozen=True, kw_only=True)
 class Entry:
@@ -19,6 +20,13 @@ class ErrorResult:
 
     entry:Entry = attr.ib()
     reason:str = attr.ib()
+
+@attr.s(auto_attribs=True, frozen=True, kw_only=True)
+class NoMatch:
+    entry:Entry = attr.ib()
+    actual_size:int = attr.ib()
+    actual_sha:str = attr.ib()
+    actual_md5:str = attr.ib()
 
 class Application:
     '''the main application
@@ -82,7 +90,7 @@ class Application:
 
 
 
-        for     iter_entry in self.entry_list:
+        for iter_entry in self.entry_list:
 
             self.logger.info("on entry `%s`", iter_entry)
 
@@ -95,6 +103,8 @@ class Application:
                 self.error_list.append(ErrorResult(
                     entry=iter_entry,
                     reason=f"the local file `{local_file_path}` doesn't exist or is not a file"))
+
+                continue
 
             # validate the file attributes now
 
@@ -116,9 +126,9 @@ class Application:
                     else:
 
                         sha_hasher.update(data)
-                        md5_hahser.update(data)
+                        md5_hasher.update(data)
 
-            md5_hex = md5_hahser.hexdigest()
+            md5_hex = md5_hasher.hexdigest()
             sha1_hex = sha_hasher.hexdigest()
 
             self.logger.debug("md5 hex: `%s`, sha1 hex: `%s`", md5_hex, sha1_hex)
@@ -136,26 +146,40 @@ class Application:
                 self.match_list.append(iter_entry)
 
             else:
-                self.nomatch_list.append(iter_entry)
+
+                no_match = NoMatch(
+                    entry=iter_entry,
+                    actual_size=stat_result.st_size,
+                    actual_sha=sha1_hex,
+                    actual_md5=md5_hex)
+                self.nomatch_list.append(no_match)
 
 
-            iso_str = str(arrow.utcnow().timestamp)
+        iso_str = str(arrow.utcnow().timestamp)
 
-            out_folder = self.output_folder / f"{iso_str}_compare_files_to_ia_upload_results"
+        out_folder = self.output_folder / f"{iso_str}_compare_files_to_ia_upload_results"
 
-            error_path = out_folder / "errors.txt"
-            match_path = out_folder / "matches.txt"
-            nomatch_path = out_folder / "nomatches.txt"
+        out_folder.mkdir()
 
-            with open(error_path, "w", encoding="utf-8") as f:
+        error_path = out_folder / "errors.txt"
+        match_path = out_folder / "matches.txt"
+        nomatch_path = out_folder / "nomatches.txt"
 
-                f.write(pprint.pformat(self.error_list))
+        self.logger.info("final results: `%s` errors, `%s` matches, `%s didn't match",
+            len(self.error_list), len(self.match_list), len(self.nomatch_list))
+
+        with open(error_path, "w", encoding="utf-8") as f:
+
+            self.logger.info("writing errors to `%s`", error_path)
+            f.write(pprint.pformat(self.error_list))
 
 
-            with open(match_path, "w", encoding="utf-8") as f:
+        with open(match_path, "w", encoding="utf-8") as f:
 
-                f.write(pprint.pformat(self.match_list))
+            self.logger.info("writing matches to `%s`", match_path)
+            f.write(pprint.pformat(self.match_list))
 
-            with open(nomatch_path, "w", encoding="utf-8") as f:
+        with open(nomatch_path, "w", encoding="utf-8") as f:
 
-                f.write(pprint.pformat(self.nomatch_list))
+            self.logger.info("writing no matches to `%s`", nomatch_path)
+            f.write(pprint.pformat(self.nomatch_list))
